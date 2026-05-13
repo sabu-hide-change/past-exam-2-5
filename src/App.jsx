@@ -1,509 +1,953 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  CheckCircle, 
-  XCircle, 
-  AlertCircle, 
-  Play, 
-  RotateCcw, 
-  BookOpen, 
-  CheckSquare, 
-  ArrowRight,
-  List,
-  Trophy,
-  Calculator,
-  TrendingUp,
-  Factory
-} from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+// npm install lucide-react recharts firebase
 
-// --- データ定義 (全10問: 過去問セレクト演習 2-5 原価計算) ---
+import React, { useState, useEffect } from 'react';
+import { Check, X, Home, ChevronRight, List, Bookmark, Play } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceDot } from 'recharts';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, deleteField } from 'firebase/firestore';
 
-const problemData = [
+// --------------------------------------------------
+// Firebase Configuration & Initialization
+// --------------------------------------------------
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const APP_ID = "QuizApp_001_CostAccounting";
+
+// --------------------------------------------------
+// Quiz Data (Parsed from DOCX)
+// --------------------------------------------------
+const quizData = [
   {
     id: 1,
-    category: "販売差異分析",
-    question: "ある製品の第3四半期(Q3)の販売予算と実績は以下の通りである。予算実績差異を「販売数量差異」と「販売価格差異」に分解した場合、最も適切な組み合わせはどれか。\n\n【予算(Q3)】販売量：1,500個、売上高：15,000万円\n【実績(Q3)】販売量：1,600個、売上高：15,680万円 (単価9.8万円)",
-    options: [
-      "販売数量差異 1,000万円(不利) / 販売価格差異 300万円(不利)",
-      "販売数量差異 1,000万円(不利) / 販売価格差異 320万円(不利)",
-      "販売数量差異 1,000万円(有利) / 販売価格差異 300万円(不利)",
-      "販売数量差異 1,000万円(有利) / 販売価格差異 320万円(不利)"
-    ],
-    correctAnswer: 3,
-    explanation: `
-      <p class="font-bold mb-2">正解：エ</p>
-      <p class="text-sm mb-2">販売差異分析では、<strong>「(実際 － 予算) × 単価」</strong>で計算します（原価差異とは逆で、プラスが良いことです）。</p>
-      <div class="bg-blue-50 p-3 rounded text-xs space-y-2">
-        <p><strong>① 予算単価の算定：</strong></p>
-        <p>15,000万円 ÷ 1,500個 ＝ <strong>10万円/個</strong></p>
-        <p><strong>② 販売数量差異（数がいっぱい売れたか？）：</strong></p>
-        <p>(実際1,600 － 予算1,500) × 予算単価10 ＝ <strong>＋1,000万円 (有利)</strong></p>
-        <p><strong>③ 販売価格差異（高く売れたか？）：</strong></p>
-        <p>(実際9.8 － 予算10) × 実際数量1,600 ＝ －0.2 × 1,600 ＝ <strong>△320万円 (不利)</strong></p>
+    title: "個別原価計算",
+    year: "令和3年 第8問",
+    question: (
+      <div>
+        <p className="mb-4">ある製品の販売予算が以下のとおり編成されており、第3四半期(Q3)の実際販売量が1,600個、実際販売価格が98,000円であった。予算実績差異を販売数量差異と販売価格差異に分割する場合、最も適切な組み合わせを下記の解答群から選べ。</p>
+        <div className="overflow-x-auto mb-4">
+          <table className="min-w-full border-collapse border border-gray-300 text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border border-gray-300 p-2"></th>
+                <th className="border border-gray-300 p-2">Q1</th>
+                <th className="border border-gray-300 p-2">Q2</th>
+                <th className="border border-gray-300 p-2">Q3</th>
+                <th className="border border-gray-300 p-2">Q4</th>
+                <th className="border border-gray-300 p-2">合計</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-gray-300 p-2 font-semibold">販売量(個)</td>
+                <td className="border border-gray-300 p-2 text-right">1,200</td>
+                <td className="border border-gray-300 p-2 text-right">1,400</td>
+                <td className="border border-gray-300 p-2 text-right text-blue-600 font-bold">1,500</td>
+                <td className="border border-gray-300 p-2 text-right">1,400</td>
+                <td className="border border-gray-300 p-2 text-right">5,500</td>
+              </tr>
+              <tr>
+                <td className="border border-gray-300 p-2 font-semibold">売上高(万円)</td>
+                <td className="border border-gray-300 p-2 text-right">12,000</td>
+                <td className="border border-gray-300 p-2 text-right">14,000</td>
+                <td className="border border-gray-300 p-2 text-right text-blue-600 font-bold">15,000</td>
+                <td className="border border-gray-300 p-2 text-right">14,000</td>
+                <td className="border border-gray-300 p-2 text-right">55,000</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
-      <p class="text-xs mt-1 text-gray-500">※原価差異は「安く済んだら有利」ですが、販売差異は「多く(高く)売れたら有利」です。</p>
-    `
+    ),
+    choices: [
+      "販売数量差異1,000万円(不利差異)と販売価格差異300万円(不利差異)",
+      "販売数量差異1,000万円(不利差異)と販売価格差異320万円(不利差異)",
+      "販売数量差異1,000万円(有利差異)と販売価格差異300万円(不利差異)",
+      "販売数量差異1,000万円(有利差異)と販売価格差異320万円(不利差異)"
+    ],
+    answerIndex: 3,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：エ</strong></p>
+        <p>「原価差異」は標準より実際が小さいと有利ですが、「販売差異」は標準より実際が大きい方が有利（売上が大きい）となる点に注意が必要です。</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>予算販売単価:</strong> 15,000万円 ÷ 1,500個 ＝ 10万円/個</li>
+          <li><strong>販売数量差異:</strong> (実際1,600個 － 予算1,500個) × 予算単価10万円 ＝ +1,000万円 (有利差異)</li>
+          <li><strong>販売価格差異:</strong> (実際9.8万円 － 予算10万円) × 実際数量1,600個 ＝ ▲320万円 (不利差異)</li>
+        </ul>
+        <div className="mt-4 p-4 border border-gray-400 bg-white text-sm relative">
+          <div className="flex border-b border-gray-400">
+            <div className="w-1/2 p-2 bg-orange-100 border-r border-gray-400">
+              <div className="font-bold">販売価格差異</div>
+              <div>(9.8 - 10)万円 × 1,600個 = ▲320万円</div>
+            </div>
+            <div className="w-1/2 p-2 flex items-center justify-center text-gray-500">※実際価格 9.8万円/個</div>
+          </div>
+          <div className="flex">
+            <div className="w-1/3 p-2 border-r border-gray-400 flex items-center justify-center">販売予算</div>
+            <div className="w-2/3 p-2 bg-orange-100">
+              <div className="font-bold">販売数量差異</div>
+              <div>(1,600 - 1,500)個 × 10万円 = +1,000万円</div>
+            </div>
+          </div>
+          <div className="flex justify-between mt-2 text-xs text-gray-600">
+            <span>予算1,500個 (10万円/個)</span>
+            <span>実際1,600個</span>
+          </div>
+        </div>
+      </div>
+    )
   },
   {
     id: 2,
-    category: "原価計算の目的",
-    question: "原価計算に関する記述として、最も適切なものはどれか。",
-    options: [
+    title: "原価計算",
+    year: "平成27年 第6問",
+    question: (
+      <p>原価計算に関する記述として最も適切なものはどれか。</p>
+    ),
+    choices: [
       "原価計算における総原価とは、製造原価を意味する。",
       "原価計算は、財務諸表を作成する目的のためだけに行う。",
       "原価計算は、製造業にのみ必要とされる計算手続きである。",
       "材料費・労務費・経費の分類は、財務会計における費用の発生を基礎とする分類である。"
     ],
-    correctAnswer: 3,
-    explanation: `
-      <p class="font-bold mb-2">正解：エ</p>
-      <ul class="text-sm space-y-2">
-        <li><strong>ア ×：</strong> 総原価は「製造原価 ＋ 販管費」です。</li>
-        <li><strong>イ ×：</strong> 財務諸表作成だけでなく、原価管理や予算編成など「内部管理」の目的もあります。</li>
-        <li><strong>ウ ×：</strong> サービス業や卸売業でも原価計算は行われます。</li>
-        <li class="text-blue-700 font-bold"><strong>エ ○：</strong> 形態別分類（材料・労務・経費）は、財務会計との結びつきを重視した分類です。</li>
-      </ul>
-    `
+    answerIndex: 3,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：エ</strong></p>
+        <p>各選択肢の解説は以下の通りです：</p>
+        <ul className="list-disc pl-5 space-y-2">
+          <li><strong>ア：不適切。</strong>総原価は、製造原価に「販売費及び一般管理費」を加えたものです。</li>
+          <li><strong>イ：不適切。</strong>財務諸表の作成だけでなく、利益管理や価格決定の目的のためにも行われます。</li>
+          <li><strong>ウ：不適切。</strong>小売業や卸売業など、製造業以外でも必要とされる計算手続きです。</li>
+          <li><strong>エ：適切。</strong>材料費（原材料・部品）、労務費（労働力）、経費（それ以外）の分類は、財務会計の費用発生を基礎とする分類です。</li>
+        </ul>
+      </div>
+    )
   },
   {
     id: 3,
-    category: "直接労務費の計算",
-    question: "当月の直接労務費の金額を求めよ。\n・直接工賃金予算：14,400,000円\n・予定就業時間：12,000時間\n・当月実績：直接作業 1,100時間、間接作業 100時間、手待時間 200時間",
-    options: [
+    title: "原価計算（直接労務費）",
+    year: "令和2年 第10問",
+    question: (
+      <div>
+        <p className="mb-4">以下の資料に基づき、当月の直接労務費の金額として、最も適切なものを下記の解答群から選べ。なお、予定賃率を用いて賃金消費額を計算している。</p>
+        <div className="bg-gray-50 p-4 border border-gray-300 rounded mb-4">
+          <p className="font-semibold">【資料】</p>
+          <ul className="list-disc pl-5">
+            <li>本年度の直接工の予定就業時間は12,000時間、直接工賃金予算額は14,400,000円である。</li>
+            <li>当月の直接工の直接作業時間は1,100時間、間接作業時間は100時間、手待時間は200時間であった。</li>
+          </ul>
+        </div>
+      </div>
+    ),
+    choices: [
       "1,200,000円",
       "1,320,000円",
       "1,440,000円",
       "1,680,000円"
     ],
-    correctAnswer: 1,
-    explanation: `
-      <p class="font-bold mb-2">正解：イ</p>
-      <div class="text-xs space-y-2">
-        <p><strong>1. 予定賃率の計算：</strong></p>
-        <p>14,400,000円 ÷ 12,000時間 ＝ <strong>1,200円/時間</strong></p>
-        <p><strong>2. 直接労務費の計算：</strong></p>
-        <p>予定賃率 × <strong>直接作業時間</strong>（間接・手待は含めない）</p>
-        <p>1,200円 × 1,100時間 ＝ <strong>1,320,000円</strong></p>
+    answerIndex: 1,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：イ</strong></p>
+        <p>まず、1時間当たりの予定賃率を計算します。</p>
+        <p>予定賃率 ＝ 14,400,000円 ÷ 12,000時間 ＝ <strong>1,200円/時間</strong></p>
+        <p>直接労務費は「直接作業時間」のみを対象とします。（間接作業時間や手待時間は「間接労務費」となるため除外します）</p>
+        <p>直接労務費 ＝ 1,200円/時間 × 1,100時間 ＝ <strong>1,320,000円</strong></p>
       </div>
-      <p class="text-xs mt-2 text-gray-500">※間接作業や手待時間は「間接労務費（製造間接費）」になります。</p>
-    `
+    )
   },
   {
     id: 4,
-    category: "個別原価計算",
-    question: "製造指図書#11の製造原価を求めよ。\n・#11直接費：材料100,000円、労務費120,000円\n・#11直接作業時間：100時間\n・工場全体の製造間接費：150,000円（総直接作業時間300時間で配賦）",
-    options: [
+    title: "個別原価計算（製造指図書）",
+    year: "令和3年 第7問",
+    question: (
+      <div>
+        <p className="mb-4">以下の資料は、工場の2020年8月分のデータである。このとき、製造指図書#11の製造原価として、最も適切なものを下記の解答群から選べ。</p>
+        <div className="bg-gray-50 p-4 border border-gray-300 rounded mb-4 text-sm">
+          <p className="font-semibold mb-2">(1)直接費</p>
+          <table className="min-w-full border-collapse border border-gray-300 mb-4 bg-white">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border border-gray-300 p-2">製造指図書</th>
+                <th className="border border-gray-300 p-2">材料消費量</th>
+                <th className="border border-gray-300 p-2">材料単価</th>
+                <th className="border border-gray-300 p-2">直接作業</th>
+                <th className="border border-gray-300 p-2">時間賃率</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td className="border border-gray-300 p-2 text-center">#11</td><td className="border border-gray-300 p-2 text-right">50kg</td><td className="border border-gray-300 p-2 text-right">@2,000円/kg</td><td className="border border-gray-300 p-2 text-right">100時間</td><td className="border border-gray-300 p-2 text-right">1,200円/時</td></tr>
+              <tr><td className="border border-gray-300 p-2 text-center">#12</td><td className="border border-gray-300 p-2 text-right">60kg</td><td className="border border-gray-300 p-2 text-right">@2,500円/kg</td><td className="border border-gray-300 p-2 text-right">110時間</td><td className="border border-gray-300 p-2 text-right">1,200円/時</td></tr>
+              <tr><td className="border border-gray-300 p-2 text-center">#13</td><td className="border border-gray-300 p-2 text-right">50kg</td><td className="border border-gray-300 p-2 text-right">@1,500円/kg</td><td className="border border-gray-300 p-2 text-right">90時間</td><td className="border border-gray-300 p-2 text-right">1,200円/時</td></tr>
+            </tbody>
+          </table>
+          <p className="font-semibold mb-2">(2)間接費</p>
+          <ul className="list-disc pl-5">
+            <li>製造間接費実際発生額: 150,000円</li>
+            <li>製造間接費は直接作業時間を配賦基準として各製品に配賦する。</li>
+          </ul>
+        </div>
+      </div>
+    ),
+    choices: [
       "220,000円",
       "228,000円",
       "270,000円",
       "337,000円"
     ],
-    correctAnswer: 2,
-    explanation: `
-      <p class="font-bold mb-2">正解：ウ</p>
-      <div class="bg-gray-100 p-2 rounded text-xs space-y-1">
-        <p><strong>1. 製造間接費の配賦率：</strong></p>
-        <p>150,000円 ÷ 300時間 ＝ <strong>500円/時間</strong></p>
-        <p><strong>2. #11への配賦額：</strong></p>
-        <p>500円 × 100時間 ＝ <strong>50,000円</strong></p>
-        <p><strong>3. #11の製造原価合計：</strong></p>
-        <p>材料100,000 ＋ 労務120,000 ＋ 間接費50,000 ＝ <strong>270,000円</strong></p>
+    answerIndex: 2,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：ウ</strong></p>
+        <p>個別原価計算では、直接費を「直接賦課」し、間接費を「配賦」します。</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>①直接材料費:</strong> 50kg × 2,000円 ＝ 100,000円</li>
+          <li><strong>②直接労務費:</strong> 100時間 × 1,200円 ＝ 120,000円</li>
+        </ul>
+        <p className="mt-2"><strong>③間接費の配賦:</strong></p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>全直接作業時間 ＝ 100 ＋ 110 ＋ 90 ＝ 300時間</li>
+          <li>配賦率 ＝ 150,000円 ÷ 300時間 ＝ 500円/時間</li>
+          <li>#11への配賦 ＝ 500円 × 100時間 ＝ 50,000円</li>
+        </ul>
+        <p className="font-bold text-blue-700">合計(製造原価) ＝ 100,000 ＋ 120,000 ＋ 50,000 ＝ 270,000円</p>
       </div>
-    `
+    )
   },
   {
     id: 5,
-    category: "先入先出法(FIFO)",
-    question: "8月の商品Ａの商品売買益を求めよ（先入先出法）。\n・8/1 前月繰越：20個 (@300円)\n・8/2 仕入：100個 (@350円)\n・8/5 仕入戻し：10個 (@350円)\n・8/16 売上：80個 (@600円)\n・8/19 売上戻り：10個 (@600円)",
-    options: [
+    title: "総合原価計算（先入先出法）",
+    year: "令和元年 第1問",
+    question: (
+      <div>
+        <p className="mb-4">8月の商品Ａの取引は以下のとおりであった。8月の商品売買益として、最も適切なものを下記の解答群から選べ。なお、先入先出法を採用しているものとする。</p>
+        <div className="overflow-x-auto mb-4">
+          <table className="min-w-full border-collapse border border-gray-300 text-sm bg-white">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border border-gray-300 p-2">日付</th>
+                <th className="border border-gray-300 p-2">摘要</th>
+                <th className="border border-gray-300 p-2">数量</th>
+                <th className="border border-gray-300 p-2">単価</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td className="border border-gray-300 p-2">8月1日</td><td className="border border-gray-300 p-2">前月繰越</td><td className="border border-gray-300 p-2 text-right">20個</td><td className="border border-gray-300 p-2 text-right">300円</td></tr>
+              <tr><td className="border border-gray-300 p-2">2日</td><td className="border border-gray-300 p-2">仕入</td><td className="border border-gray-300 p-2 text-right">100個</td><td className="border border-gray-300 p-2 text-right">350円</td></tr>
+              <tr><td className="border border-gray-300 p-2">5日</td><td className="border border-gray-300 p-2">仕入戻し</td><td className="border border-gray-300 p-2 text-right">10個</td><td className="border border-gray-300 p-2 text-right">350円</td></tr>
+              <tr><td className="border border-gray-300 p-2">16日</td><td className="border border-gray-300 p-2">売上</td><td className="border border-gray-300 p-2 text-right">80個</td><td className="border border-gray-300 p-2 text-right">600円</td></tr>
+              <tr><td className="border border-gray-300 p-2">19日</td><td className="border border-gray-300 p-2">売上戻り</td><td className="border border-gray-300 p-2 text-right">10個</td><td className="border border-gray-300 p-2 text-right">600円</td></tr>
+              <tr><td className="border border-gray-300 p-2">31日</td><td className="border border-gray-300 p-2">次月繰越</td><td className="border border-gray-300 p-2 text-right">40個</td><td className="border border-gray-300 p-2"></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ),
+    choices: [
       "4,500円",
       "10,500円",
       "18,500円",
       "24,500円"
     ],
-    correctAnswer: 2,
-    explanation: `
-      <p class="font-bold mb-2">正解：ウ</p>
-      <p class="text-sm mb-1"><strong>純売上高：</strong> 600円 × (80－10)個 ＝ 42,000円</p>
-      <div class="bg-blue-50 p-2 rounded text-xs mb-1">
-        <p class="font-bold">売上原価の計算（70個分）：</p>
-        <p>先入先出なので、古いものから順に売れたと考えます。</p>
-        <p>① 前月分全部：20個 × 300円 ＝ 6,000円</p>
-        <p>② 当月分から：50個 × 350円 ＝ 17,500円</p>
-        <p>合計：23,500円</p>
+    answerIndex: 2,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：ウ</strong></p>
+        <p>先入先出法（FIFO）に基づく原価と売上の計算を行います。</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>実質売上数量:</strong> 売上80個 － 売上戻り10個 ＝ 70個</li>
+          <li><strong>純売上高:</strong> 70個 × 600円 ＝ 42,000円</li>
+        </ul>
+        <p className="mt-2"><strong>売上原価の計算（先入先出法）:</strong></p>
+        <p>販売した70個のうち、まず「前月繰越」から引当、残りを「当月仕入」から引き当てます。</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>前月繰越分: 20個 × 300円 ＝ 6,000円</li>
+          <li>当月仕入分(残り50個): 50個 × 350円 ＝ 17,500円</li>
+          <li>商品原価合計 ＝ 6,000円 ＋ 17,500円 ＝ 23,500円</li>
+        </ul>
+        <p className="font-bold text-blue-700 mt-2">商品売買益 ＝ 売上高(42,000円) － 商品原価(23,500円) ＝ 18,500円</p>
       </div>
-      <p class="text-sm font-bold text-blue-700">売買益 ＝ 42,000 － 23,500 ＝ 18,500円</p>
-    `
+    )
   },
   {
     id: 6,
-    category: "総合原価計算(平均法)",
-    question: "平均法による「月末仕掛品原価」を求めよ。\n・月初：200kg (材料30,000/加工18,000)\n・当月投入：400kg (材料120,000/加工84,000)\n・完成：300kg、正常減損：100kg、月末：200kg\n※減損は度外視法（良品に負担させる）、加工進捗度は50%。",
-    options: [
+    title: "平均法",
+    year: "令和5年 第10問",
+    question: (
+      <div>
+        <p className="mb-4">当工場の以下の資料に基づき、平均法による月末仕掛品原価として、最も適切なものを下記の解答群から選べ。なお、材料は工程の始点ですべて投入されており、減損は工程の終点で発生している。</p>
+        <div className="bg-gray-50 p-4 border border-gray-300 rounded mb-4 text-sm">
+          <p className="font-semibold mb-2">(1) 当月の生産量</p>
+          <ul className="list-disc pl-5 mb-4">
+            <li>月初仕掛品: 200kg (50%)</li>
+            <li>当月投入: 400kg</li>
+            <li>合計: 600kg</li>
+            <li>正常減損: 100kg (100%)</li>
+            <li>月末仕掛品: 200kg (50%)</li>
+            <li>当月完成品: 300kg</li>
+            <li className="list-none text-gray-500 text-xs">※カッコ内は加工進捗度</li>
+          </ul>
+          <p className="font-semibold mb-2">(2) 当月の原価</p>
+          <table className="min-w-full border-collapse border border-gray-300 mb-2 bg-white text-right">
+            <thead className="bg-gray-100">
+              <tr><th className="border border-gray-300 p-2"></th><th className="border border-gray-300 p-2">直接材料費</th><th className="border border-gray-300 p-2">加工費</th></tr>
+            </thead>
+            <tbody>
+              <tr><td className="border border-gray-300 p-2 text-left">月初仕掛品</td><td className="border border-gray-300 p-2">30,000円</td><td className="border border-gray-300 p-2">18,000円</td></tr>
+              <tr><td className="border border-gray-300 p-2 text-left">当月投入</td><td className="border border-gray-300 p-2">120,000円</td><td className="border border-gray-300 p-2">84,000円</td></tr>
+              <tr className="font-bold"><td className="border border-gray-300 p-2 text-left">合計</td><td className="border border-gray-300 p-2">150,000円</td><td className="border border-gray-300 p-2">102,000円</td></tr>
+            </tbody>
+          </table>
+          <p className="text-xs text-gray-600">※月末仕掛品原価の計算は度外視法によるものとする。</p>
+        </div>
+      </div>
+    ),
+    choices: [
       "70,400円",
       "81,000円",
       "85,500円",
       "108,000円"
     ],
-    correctAnswer: 0,
-    explanation: `
-      <p class="font-bold mb-2">正解：ア</p>
-      <p class="text-xs mb-2">度外視法（平均法）では、減損を無視して「完成品＋月末」の数量比で按分します。</p>
-      <div class="space-y-2 text-xs">
-        <div class="border p-2 rounded">
-          <p class="font-bold">① 直接材料費単価</p>
-          <p>(30,000＋120,000) ÷ (完成300＋月末200) ＝ <strong>300円/kg</strong></p>
-          <p>※材料は始点投入なので減損分は無視して分母500で割る（実質的に負担させたことになる）</p>
-          <p class="text-gray-500">正確には：総額150,000 ÷ (300+200) = 300円。月末分 = 300×200 = 60,000円... ではない？</p>
-          <p class="text-red-500 mt-1">訂正：度外視法の計算</p>
-          <p>総コスト ÷ (完成＋月末) で単価を出すのが一般的ですが、本問の解説では「投入総量」で割って単価を出し、それを月末数量に掛けています。</p>
-          <p>単価：150,000 ÷ (200+400) = 250円 ?? <br/>解説によると単価250円、月末50,000円。</p>
+    answerIndex: 0,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：ア</strong></p>
+        <p>平均法に基づき、月末仕掛品の原価を計算します。正常減損は度外視法（両者に負担）を適用します。</p>
+        <div className="bg-blue-50 p-3 rounded">
+          <p className="font-bold">① 直接材料費（始点投入なので進捗度は無関係）</p>
+          <ul className="list-disc pl-5 text-sm">
+            <li>総数量 ＝ 完成品300 ＋ 減損100 ＋ 月末200 ＝ 600kg</li>
+            <li>平均単価 ＝ (30,000 ＋ 120,000) ÷ 600 ＝ 250円/kg</li>
+            <li>月末直接材料費 ＝ 250円 × 200kg ＝ <strong>50,000円</strong></li>
+          </ul>
         </div>
-        <div class="border p-2 rounded">
-          <p class="font-bold">② 加工費単価</p>
-          <p>総額102,000 ÷ (完成300＋月末100＋減損100) = 204円</p>
-          <p>月末分：204円 × 100単位 ＝ 20,400円</p>
+        <div className="bg-green-50 p-3 rounded">
+          <p className="font-bold">② 加工費（進捗度を加味した換算量）</p>
+          <ul className="list-disc pl-5 text-sm">
+            <li>月初(100kg), 完成(300kg), 減損(終点発生のため100%＝100kg), 月末(200kg×50%＝100kg)</li>
+            <li>総換算量 ＝ 300 ＋ 100 ＋ 100 ＝ 500kg (※当月投入ではなく総量で割るのが平均法)</li>
+            <li>平均単価 ＝ (18,000 ＋ 84,000) ÷ 500 ＝ 204円/kg</li>
+            <li>月末加工費 ＝ 204円 × 100kg ＝ <strong>20,400円</strong></li>
+          </ul>
         </div>
-        <p class="font-bold text-blue-700">合計：50,000 ＋ 20,400 ＝ 70,400円</p>
+        <p className="font-bold text-blue-700">月末仕掛品原価 ＝ 50,000円 ＋ 20,400円 ＝ 70,400円</p>
       </div>
-    `
+    )
   },
   {
     id: 7,
-    category: "材料数量差異",
-    question: "標準原価計算における「材料数量差異」を求めよ。\n・標準：単価300円/kg、1個あたり3kg\n・生産実績：当月投入1,000単位\n・実際消費量：3,100kg\n・実際価格：310円/kg",
-    options: [
+    title: "材料数量差異",
+    year: "平成25年 第10問",
+    question: (
+      <div>
+        <p className="mb-4">標準原価計算を実施しているA社の当月に関する以下のデータに基づき、材料数量差異として最も適切なものを、下記の解答群から選べ。なお、材料は工程の始点で投入される。</p>
+        <div className="bg-gray-50 p-4 border border-gray-300 rounded mb-4 text-sm">
+          <p className="font-semibold mb-1">【直接材料費の原価標準データ】</p>
+          <p>300円/kg × 3kg ＝ 900円</p>
+          <p className="font-semibold mb-1 mt-3">【当月の生産関連データ】</p>
+          <ul className="list-disc pl-5">
+            <li>当月材料消費量: 3,100kg</li>
+            <li>材料消費価格: 310円/kg</li>
+            <li>月初仕掛品: 200単位</li>
+            <li>当月完成品: 900単位</li>
+            <li>月末仕掛品: 300単位</li>
+          </ul>
+        </div>
+      </div>
+    ),
+    choices: [
       "不利差異 30,000円",
       "不利差異 31,000円",
       "不利差異 61,000円",
       "不利差異 120,000円"
     ],
-    correctAnswer: 0,
-    explanation: `
-      <p class="font-bold mb-2">正解：ア</p>
-      <div class="text-xs space-y-2">
-        <p><strong>1. 標準消費量の計算：</strong></p>
-        <p>1,000単位 × 3kg ＝ <strong>3,000kg</strong></p>
-        <p><strong>2. 数量差異の計算：</strong></p>
-        <p>標準単価 × (標準消費量 － 実際消費量)</p>
-        <p>300円 × (3,000kg － 3,100kg)</p>
-        <p>＝ 300 × (－100) ＝ <strong>－30,000円 (不利)</strong></p>
+    answerIndex: 0,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：ア</strong></p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>当月投入量:</strong> 当月完成900 ＋ 月末仕掛品300 － 月初仕掛品200 ＝ 1,000単位<br/>(材料は始点投入のため、進捗度は加味しません)</li>
+          <li><strong>標準消費量:</strong> 1,000単位 × 3kg ＝ 3,000kg</li>
+          <li><strong>材料数量差異:</strong> 標準単価 × (標準消費量 － 実際消費量)<br/>
+            ＝ 300円/kg × (3,000kg － 3,100kg) ＝ ▲30,000円<br/>
+            実際消費量が標準より多いため、<strong>不利差異 30,000円</strong>となります。
+          </li>
+        </ul>
       </div>
-      <p class="text-xs mt-2 text-gray-500">※実際の方が多く使ってしまったので「不利差異」です。</p>
-    `
+    )
   },
   {
     id: 8,
-    category: "作業時間差異",
-    question: "直接労務費の「作業時間差異」を求めよ。\n・標準：300円/時間\n・標準作業時間：当月投入110個 × 6時間 ＝ 660時間\n・実際：310円/時間、700時間",
-    options: [
-      "不利差異 12,000円",
-      "不利差異 12,400円",
-      "有利差異 6,000円",
-      "有利差異 6,200円"
-    ],
-    correctAnswer: 0,
-    explanation: `
-      <p class="font-bold mb-2">正解：ア</p>
-      <div class="text-xs space-y-1">
-        <p><strong>作業時間差異の計算：</strong></p>
-        <p>標準賃率 × (標準時間 － 実際時間)</p>
-        <p>300円 × (660時間 － 700時間)</p>
-        <p>＝ 300 × (－40)</p>
-        <p>＝ <strong>－12,000円 (不利)</strong></p>
+    title: "作業時間差異",
+    year: "平成29年 第9問",
+    question: (
+      <div>
+        <p className="mb-4">標準原価計算を採用しているB工場の以下の資料に基づき、作業時間差異として、最も適切なものを下記の解答群から選べ。</p>
+        <div className="bg-gray-50 p-4 border border-gray-300 rounded mb-4 text-sm">
+          <p className="font-semibold">(1) 原価標準（抜粋）</p>
+          <p className="ml-4 mb-2">直接労務費: 300円/時間 × 6時間 ＝ 1,800円</p>
+          
+          <p className="font-semibold">(2) 当月の生産量</p>
+          <ul className="list-disc pl-8 mb-2">
+            <li>月初仕掛品: 40個（加工進捗度50％）</li>
+            <li>当月投入: 120個</li>
+            <li>当月完成品: 100個</li>
+            <li>月末仕掛品: 60個（加工進捗度50％）</li>
+          </ul>
+          
+          <p className="font-semibold">(3) 当月の実際直接労務費</p>
+          <ul className="list-disc pl-8">
+            <li>実際賃率: 310円/時間</li>
+            <li>実際直接作業時間: 700時間</li>
+          </ul>
+        </div>
       </div>
-      <p class="text-xs mt-1">※予定より40時間多くかかってしまったため、コスト増（不利）となります。</p>
-    `
+    ),
+    choices: [
+      "不利差異：12,000円",
+      "不利差異：12,400円",
+      "有利差異：6,000円",
+      "有利差異：6,200円"
+    ],
+    answerIndex: 0,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：ア</strong></p>
+        <p>作業時間差異は「(標準作業時間 － 実際作業時間) × 標準賃率」で計算します。</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>当月投入(換算量):</strong> 完成100 ＋ 月末(60×0.5) － 月初(40×0.5) ＝ 100 ＋ 30 － 20 ＝ 110個</li>
+          <li><strong>標準作業時間:</strong> 110個 × 6時間 ＝ 660時間</li>
+          <li><strong>作業時間差異:</strong> (660時間 － 700時間) × 300円/時間 ＝ ▲12,000円</li>
+        </ul>
+        <p>実際の作業時間（700時間）が標準（660時間）を上回っているため、<strong>不利差異</strong>となります。</p>
+      </div>
+    )
   },
   {
     id: 9,
-    category: "製造間接費の予算差異",
-    question: "公式法変動予算における「予算差異」を求めよ。\n・予算：固定費150,000円、変動費率20千円/時間\n・実際：操業度4,000時間、発生額245,000千円",
-    options: [
-      "不利差異 15,000千円",
-      "不利差異 30,000千円",
-      "有利差異 15,000千円",
-      "有利差異 30,000千円"
-    ],
-    correctAnswer: 0,
-    explanation: `
-      <p class="font-bold mb-2">正解：ア</p>
-      <div class="bg-blue-50 p-2 rounded text-xs space-y-1">
-        <p><strong>1. 予算許容額（あるべき予算）の計算：</strong></p>
-        <p>固定費 150,000 ＋ (変動費率20 × 実際時間4,000)</p>
-        <p>＝ 150,000 ＋ 80,000 ＝ <strong>230,000千円</strong></p>
-        <p><strong>2. 予算差異の計算：</strong></p>
-        <p>予算許容額 － 実際発生額</p>
-        <p>230,000 － 245,000 ＝ <strong>－15,000千円 (不利)</strong></p>
+    title: "公式法変動予算（シュラッター図）",
+    year: "平成30年 第9問",
+    question: (
+      <div>
+        <p className="mb-4">当社は製造間接費の予定配賦を行っている。製造間接費予算については公式法変動予算を採用している。以下の資料に基づき、製造間接費配賦差異のうち、予算差異の金額として、最も適切なものを下記の解答群から選べ。</p>
+        <div className="bg-gray-50 p-4 border border-gray-300 rounded mb-4 text-sm">
+          <p className="font-semibold mb-2">【資料】</p>
+          <ul className="list-decimal pl-5">
+            <li>月間の製造間接費予算: 基準操業度5,000時間、固定費150,000千円、変動費率20千円/時間</li>
+            <li>当月の実際操業度: 4,000時間</li>
+            <li>当月の製造間接費実際発生額: 245,000千円</li>
+          </ul>
+        </div>
       </div>
-    `
+    ),
+    choices: [
+      "不利差異：15,000千円",
+      "不利差異：30,000千円",
+      "有利差異：15,000千円",
+      "有利差異：30,000千円"
+    ],
+    answerIndex: 0,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：ア</strong></p>
+        <p>公式法変動予算（シュラッター図）では、予算差異は「予算許容額」と「実際発生額」の差額で求めます。</p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong>変動費予算額:</strong> 20千円/時間 × 実際操業度4,000時間 ＝ 80,000千円</li>
+          <li><strong>予算許容額:</strong> 変動費予算(80,000) ＋ 固定費予算(150,000) ＝ 230,000千円</li>
+          <li><strong>予算差異:</strong> 予算許容額230,000 － 実際発生額245,000 ＝ ▲15,000千円</li>
+        </ul>
+        <p>実際発生額が予算許容額を超えているため、<strong>不利差異</strong>となります。</p>
+        
+        <div className="mt-4 bg-white p-2 border border-gray-300 rounded h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart
+              margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="x" type="number" domain={[0, 5000]} label={{ value: '操業度', position: 'bottom' }} />
+              <YAxis domain={[0, 260000]} />
+              <Tooltip />
+              <Legend />
+              {/* 予算許容額ライン */}
+              <Line data={[ {x: 0, y: 150000}, {x: 5000, y: 250000} ]} dataKey="y" name="予算ライン" stroke="#8884d8" />
+              {/* 固定費ライン */}
+              <Line data={[ {x: 0, y: 150000}, {x: 5000, y: 150000} ]} dataKey="y" name="固定費" stroke="#82ca9d" />
+              {/* 実際発生額ポイント */}
+              <ReferenceDot x={4000} y={245000} r={5} fill="red" stroke="none" label={{ position: 'top', value: '実際 (245,000)' }} />
+              <ReferenceDot x={4000} y={230000} r={5} fill="blue" stroke="none" label={{ position: 'bottom', value: '予算許容額 (230,000)' }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    )
   },
   {
     id: 10,
-    category: "意思決定会計",
-    question: "代替案の選択によって金額に差異が生じず、将来の意思決定に無関連な原価（過去の投資など）を何というか。",
-    options: [
+    title: "意思決定に関係する原価",
+    year: "平成25年 第16問",
+    question: (
+      <p>代替案の選択によって金額に差異が生じないコストであり、将来の意思決定に無関連な原価を表すものとして、最も適切なものはどれか。</p>
+    ),
+    choices: [
       "機会原価",
       "限界原価",
       "裁量可能原価",
       "埋没原価"
     ],
-    correctAnswer: 3,
-    explanation: `
-      <p class="font-bold mb-2">正解：エ</p>
-      <p class="text-sm"><strong>埋没原価（サンクコスト）：</strong> 過去に支出され、どのような意思決定をしても回収できない原価のこと。意思決定の際には無視すべきコストです。</p>
-      <ul class="text-xs space-y-1 mt-2 text-gray-600">
-        <li>ア 機会原価：ある案を選んだために諦めた利益（考慮すべき）。</li>
-        <li>イ 限界原価：生産量1単位の増加で増えるコスト。</li>
-        <li>ウ 裁量可能原価：経営者の判断で増減できるコスト（広告費など）。</li>
-      </ul>
-    `
+    answerIndex: 3,
+    explanation: (
+      <div className="space-y-3">
+        <p><strong>正解：エ</strong></p>
+        <p>各用語の意味は以下の通りです。</p>
+        <ul className="list-disc pl-5 space-y-2">
+          <li><strong>機会原価 (Opportunity Cost):</strong> ある選択をしたために失われた、他の選択肢での最大利益。意思決定に<strong>関連する</strong>。</li>
+          <li><strong>限界原価:</strong> 生産量を1単位増やしたときに増加するコスト（変動費）。意思決定に<strong>関連する</strong>。</li>
+          <li><strong>裁量可能原価:</strong> 経営者の判断で削減・増額をコントロールできる原価（広告費や研究開発費など）。意思決定に<strong>関連する</strong>。</li>
+          <li><strong>埋没原価 (Sunk Cost):</strong> 過去の意思決定ですでに発生しており、今後のいかなる代替案を選んでも回収できないコスト。<strong>意思決定には無関連（考慮してはならない）</strong>。</li>
+        </ul>
+      </div>
+    )
   }
 ];
 
-// --- コンポーネント実装 ---
-
+// --------------------------------------------------
+// Main App Component
+// --------------------------------------------------
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState('menu'); 
-  const [quizMode, setQuizMode] = useState('all'); 
-  const [currentProblemIndex, setCurrentProblemIndex] = useState(0);
-  const [filteredProblems, setFilteredProblems] = useState([]);
-  const [userAnswers, setUserAnswers] = useState({}); 
-  const [reviewFlags, setReviewFlags] = useState({}); 
-  const [showExplanation, setShowExplanation] = useState(false);
-  const [selectedOption, setSelectedOption] = useState(null);
+  // Sync States
+  const [syncWord, setSyncWord] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  useEffect(() => {
-    const savedAnswers = JSON.parse(localStorage.getItem('past_exam_2_5_answers')) || {};
-    const savedReviews = JSON.parse(localStorage.getItem('past_exam_2_5_reviews')) || {};
-    setUserAnswers(savedAnswers);
-    setReviewFlags(savedReviews);
-  }, []);
+  // App States
+  const [screen, setScreen] = useState('login'); // 'login', 'resume', 'menu', 'quiz', 'history'
+  const [history, setHistory] = useState({}); // { [id]: { isCorrect, updatedAt } }
+  const [reviewFlags, setReviewFlags] = useState({}); // { [id]: boolean }
+  const [progress, setProgress] = useState(null); // { index: number, mode: string }
 
-  useEffect(() => {
-    localStorage.setItem('past_exam_2_5_answers', JSON.stringify(userAnswers));
-    localStorage.setItem('past_exam_2_5_reviews', JSON.stringify(reviewFlags));
-  }, [userAnswers, reviewFlags]);
+  // Quiz Execution States
+  const [currentList, setCurrentList] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentMode, setCurrentMode] = useState('all');
+  const [isAnswering, setIsAnswering] = useState(true);
+  const [selectedChoice, setSelectedChoice] = useState(null);
 
-  const startQuiz = (mode) => {
-    let targets = [];
+  // --------------------------------------------------
+  // Firebase Data Fetch & Sync
+  // --------------------------------------------------
+  const syncDataToFirebase = async (updates) => {
+    if (!syncWord) return;
+    try {
+      const docRef = doc(db, APP_ID, syncWord);
+      await setDoc(docRef, updates, { merge: true });
+      console.log('Firebase synced:', updates);
+    } catch (error) {
+      console.error('Firebase sync error:', error);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    if (!syncWord.trim()) return;
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      await signInAnonymously(auth);
+      const docRef = doc(db, APP_ID, syncWord);
+      const docSnap = await getDoc(docRef);
+
+      let fetchedHistory = {};
+      let fetchedReviews = {};
+      let fetchedProgress = null;
+
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        fetchedHistory = data.history || {};
+        fetchedReviews = data.reviewFlags || {};
+        fetchedProgress = data.progress || null;
+      }
+
+      setHistory(fetchedHistory);
+      setReviewFlags(fetchedReviews);
+      setProgress(fetchedProgress);
+      setIsLoggedIn(true);
+
+      // Check for resumable progress
+      if (fetchedProgress && typeof fetchedProgress.index === 'number') {
+        setScreen('resume');
+      } else {
+        setScreen('menu');
+      }
+    } catch (error) {
+      console.error(error);
+      setErrorMsg('ログインに失敗しました。時間をおいて再試行してください。');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --------------------------------------------------
+  // Navigation & Mode Selection
+  // --------------------------------------------------
+  const startQuiz = async (mode) => {
+    let targetList = [];
     if (mode === 'all') {
-      targets = problemData;
+      targetList = [...quizData];
     } else if (mode === 'wrong') {
-      targets = problemData.filter(p => userAnswers[p.id] && !userAnswers[p.id].isCorrect);
+      targetList = quizData.filter(q => history[q.id]?.isCorrect === false);
     } else if (mode === 'review') {
-      targets = problemData.filter(p => reviewFlags[p.id]);
+      targetList = quizData.filter(q => reviewFlags[q.id]);
     }
 
-    if (targets.length === 0) {
-      alert("対象となる問題がありません。");
+    if (targetList.length === 0) {
+      alert('対象の問題がありません。');
       return;
     }
 
-    setQuizMode(mode);
-    setFilteredProblems(targets);
-    setCurrentProblemIndex(0);
-    setShowExplanation(false);
-    setSelectedOption(null);
-    setCurrentScreen('quiz');
+    setCurrentList(targetList);
+    setCurrentMode(mode);
+    setCurrentIndex(0);
+    setIsAnswering(true);
+    setSelectedChoice(null);
+    setScreen('quiz');
+
+    // Save starting progress
+    const initProgress = { index: 0, mode: mode };
+    setProgress(initProgress);
+    await syncDataToFirebase({ progress: initProgress });
   };
 
-  const handleAnswer = (optionIndex) => {
-    setSelectedOption(optionIndex);
-    const problem = filteredProblems[currentProblemIndex];
-    const isCorrect = optionIndex === problem.correctAnswer;
-    
-    setUserAnswers(prev => ({
-      ...prev,
-      [problem.id]: { answerIndex: optionIndex, isCorrect: isCorrect }
-    }));
-    setShowExplanation(true);
+  const resumeQuiz = async () => {
+    if (!progress) return;
+    const mode = progress.mode || 'all';
+    let targetList = [];
+    if (mode === 'all') {
+      targetList = [...quizData];
+    } else if (mode === 'wrong') {
+      targetList = quizData.filter(q => history[q.id]?.isCorrect === false);
+    } else if (mode === 'review') {
+      targetList = quizData.filter(q => reviewFlags[q.id]);
+    }
+
+    // Safety fallback
+    let safeIndex = progress.index;
+    if (safeIndex >= targetList.length || safeIndex < 0) {
+       safeIndex = 0;
+    }
+
+    if (targetList.length === 0) {
+      await clearProgress();
+      setScreen('menu');
+      return;
+    }
+
+    setCurrentList(targetList);
+    setCurrentMode(mode);
+    setCurrentIndex(safeIndex);
+    setIsAnswering(true);
+    setSelectedChoice(null);
+    setScreen('quiz');
   };
 
-  const nextProblem = () => {
-    if (currentProblemIndex < filteredProblems.length - 1) {
-      setCurrentProblemIndex(prev => prev + 1);
-      setShowExplanation(false);
-      setSelectedOption(null);
-    } else {
-      setCurrentScreen('result');
+  const clearProgressAndStart = async () => {
+    await clearProgress();
+    setScreen('menu');
+  };
+
+  const clearProgress = async () => {
+    setProgress(null);
+    if (!syncWord) return;
+    try {
+      const docRef = doc(db, APP_ID, syncWord);
+      await setDoc(docRef, { progress: deleteField() }, { merge: true });
+      console.log('Progress cleared');
+    } catch (e) {
+      console.error(e);
     }
   };
 
-  const toggleReview = (problemId) => {
-    setReviewFlags(prev => ({ ...prev, [problemId]: !prev[problemId] }));
+  const endQuiz = async () => {
+    await clearProgress();
+    setScreen('menu');
   };
 
-  const stats = useMemo(() => {
-    const total = problemData.length;
-    const correctCount = Object.values(userAnswers).filter(a => a.isCorrect).length;
-    const reviewCount = Object.values(reviewFlags).filter(Boolean).length;
-    return { total, correctCount, reviewCount };
-  }, [userAnswers, reviewFlags]);
+  // --------------------------------------------------
+  // Quiz Interaction
+  // --------------------------------------------------
+  const handleAnswer = (choiceIdx) => {
+    if (!isAnswering) return;
+    const currentQ = currentList[currentIndex];
+    const isCorrect = choiceIdx === currentQ.answerIndex;
+    
+    setSelectedChoice(choiceIdx);
+    setIsAnswering(false);
 
-  if (currentScreen === 'menu') {
+    const updatedHistory = {
+      ...history,
+      [currentQ.id]: { isCorrect, updatedAt: Date.now() }
+    };
+    setHistory(updatedHistory);
+    syncDataToFirebase({ history: updatedHistory });
+  };
+
+  const handleNext = async () => {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < currentList.length) {
+      setCurrentIndex(nextIndex);
+      setIsAnswering(true);
+      setSelectedChoice(null);
+      
+      // Update progress
+      const newProgress = { index: nextIndex, mode: currentMode };
+      setProgress(newProgress);
+      await syncDataToFirebase({ progress: newProgress });
+    } else {
+      await endQuiz();
+    }
+  };
+
+  const toggleReviewFlag = () => {
+    const currentQ = currentList[currentIndex];
+    const newFlagStatus = !reviewFlags[currentQ.id];
+    const updatedFlags = { ...reviewFlags, [currentQ.id]: newFlagStatus };
+    setReviewFlags(updatedFlags);
+    syncDataToFirebase({ reviewFlags: updatedFlags });
+  };
+
+  // --------------------------------------------------
+  // Screens (Components)
+  // --------------------------------------------------
+  if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-800 p-4 font-sans">
-        <div className="max-w-xl mx-auto space-y-6">
-          <header className="text-center py-8">
-            <div className="inline-block bg-teal-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mb-1">
-              財務・会計
-            </div>
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight flex items-center justify-center gap-2">
-              <Calculator className="w-7 h-7 text-teal-600" /> 過去問セレクト 2-5
-            </h1>
-            <p className="text-slate-400 text-xs mt-1">原価計算（差異分析・CVP）</p>
-          </header>
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <form onSubmit={handleLogin} className="bg-white p-6 rounded-lg shadow-md w-full max-w-sm">
+          <h1 className="text-xl font-bold mb-4 text-center text-blue-700">原価計算 過去問演習</h1>
+          <p className="text-sm text-gray-600 mb-4 text-center">データを同期するための合言葉（ユーザーID）を入力してください。</p>
+          <input
+            type="text"
+            className="w-full p-2 border border-gray-300 rounded mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="例: my-secret-word"
+            value={syncWord}
+            onChange={(e) => setSyncWord(e.target.value)}
+            required
+          />
+          {errorMsg && <p className="text-red-500 text-sm mb-4">{errorMsg}</p>}
+          <button 
+            disabled={loading}
+            className="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? '読み込み中...' : 'スタート'}
+          </button>
+        </form>
+      </div>
+    );
+  }
 
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center">
-            <h2 className="text-sm font-black mb-4 w-full flex items-center gap-2 text-slate-600">
-              <Trophy className="w-4 h-4 text-yellow-500" /> 学習進捗
-            </h2>
-            <div className="w-44 h-44 relative">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={[
-                      { name: '正解', value: stats.correctCount, color: '#0d9488' },
-                      { name: '未クリア', value: stats.total - stats.correctCount, color: '#f1f5f9' },
-                    ]}
-                    cx="50%" cy="50%" innerRadius={55} outerRadius={75} paddingAngle={4} dataKey="value" stroke="none"
-                  >
-                    <Cell fill="#0d9488" />
-                    <Cell fill="#f1f5f9" />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-3xl font-black text-slate-800">{Math.round((stats.correctCount/stats.total)*100)}%</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4 text-center mt-4 w-full border-t border-slate-50 pt-4">
-              <div>
-                <p className="text-xl font-black text-teal-600">{stats.correctCount}<span className="text-xs text-slate-300">/{stats.total}</span></p>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Solved</p>
-              </div>
-              <div>
-                <p className="text-xl font-black text-orange-500">{stats.reviewCount}</p>
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Review</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3">
-            <button onClick={() => startQuiz('all')} className="flex items-center justify-between p-6 bg-slate-900 text-white rounded-3xl shadow-xl hover:bg-black transition active:scale-95">
-              <div className="flex items-center gap-4">
-                <div className="bg-white/10 p-2 rounded-xl"><Play className="w-5 h-5" /></div>
-                <div className="text-left"><div className="font-black">全問題を解く</div><div className="text-[10px] opacity-50 font-bold">過去問セレクト 全10問</div></div>
-              </div>
-              <ArrowRight className="w-5 h-5" />
-            </button>
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={() => startQuiz('wrong')} className="p-4 bg-white border border-slate-100 text-red-600 rounded-3xl font-black text-xs flex flex-col items-center gap-2 hover:bg-red-50 transition active:scale-95">
-                <RotateCcw className="w-4 h-4" /> 弱点克服
+  if (screen === 'resume') {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+         <div className="bg-white p-6 rounded-lg shadow-md w-full max-w-sm text-center">
+            <h2 className="text-lg font-bold mb-4">前回の続きから再開しますか？</h2>
+            <p className="text-gray-600 mb-6 text-sm">
+              モード: {progress.mode === 'all' ? 'すべての問題' : progress.mode === 'wrong' ? '前回不正解' : '要復習'}<br/>
+              進行状況: {progress.index + 1}問目から
+            </p>
+            <div className="space-y-3">
+              <button onClick={resumeQuiz} className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700">
+                <Play size={18} /> 続きから再開する
               </button>
-              <button onClick={() => startQuiz('review')} className="p-4 bg-white border border-slate-100 text-orange-600 rounded-3xl font-black text-xs flex flex-col items-center gap-2 hover:bg-orange-50 transition active:scale-95">
-                <CheckSquare className="w-4 h-4" /> 復習リスト
+              <button onClick={clearProgressAndStart} className="w-full flex items-center justify-center gap-2 bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded hover:bg-gray-300">
+                最初から始める
               </button>
             </div>
-          </div>
+         </div>
+      </div>
+    );
+  }
+
+  if (screen === 'menu') {
+    const wrongCount = quizData.filter(q => history[q.id]?.isCorrect === false).length;
+    const reviewCount = quizData.filter(q => reviewFlags[q.id]).length;
+
+    return (
+      <div className="min-h-screen bg-gray-100 flex flex-col items-center pt-10 p-4">
+        <h1 className="text-2xl font-bold mb-8 text-blue-800">原価計算 過去問演習</h1>
+        <div className="w-full max-w-md space-y-4">
+          <button 
+            onClick={() => startQuiz('all')}
+            className="w-full bg-white p-4 rounded shadow hover:bg-gray-50 flex items-center justify-between border-l-4 border-blue-500"
+          >
+            <span className="font-bold text-lg">すべての問題</span>
+            <span className="text-sm text-gray-500">全{quizData.length}問 <ChevronRight size={18} className="inline" /></span>
+          </button>
+          
+          <button 
+            onClick={() => startQuiz('wrong')}
+            disabled={wrongCount === 0}
+            className={`w-full bg-white p-4 rounded shadow flex items-center justify-between border-l-4 border-red-500 ${wrongCount === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+          >
+            <span className="font-bold text-lg">前回不正解のみ</span>
+            <span className="text-sm text-gray-500">{wrongCount}問 <ChevronRight size={18} className="inline" /></span>
+          </button>
+
+          <button 
+            onClick={() => startQuiz('review')}
+            disabled={reviewCount === 0}
+            className={`w-full bg-white p-4 rounded shadow flex items-center justify-between border-l-4 border-yellow-500 ${reviewCount === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+          >
+            <span className="font-bold text-lg">要復習のみ</span>
+            <span className="text-sm text-gray-500">{reviewCount}問 <ChevronRight size={18} className="inline" /></span>
+          </button>
+
+          <button 
+            onClick={() => setScreen('history')}
+            className="w-full bg-blue-600 text-white p-4 rounded shadow hover:bg-blue-700 flex items-center justify-center font-bold mt-4"
+          >
+            <List size={20} className="mr-2" /> 学習履歴を見る
+          </button>
         </div>
       </div>
     );
   }
 
-  if (currentScreen === 'quiz') {
-    const problem = filteredProblems[currentProblemIndex];
-    const progress = ((currentProblemIndex + 1) / filteredProblems.length) * 100;
-
+  if (screen === 'history') {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-800 pb-20 font-sans">
-        <div className="sticky top-0 bg-white/90 backdrop-blur-md z-10 border-b border-slate-100">
-          <div className="h-1 bg-slate-100"><div className="h-full bg-teal-600 transition-all duration-500" style={{ width: `${progress}%` }}></div></div>
-          <div className="flex items-center justify-between p-4 max-w-2xl mx-auto">
-            <button onClick={() => setCurrentScreen('menu')} className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Quit</button>
-            <div className="font-black text-slate-700 text-sm">Q.{currentProblemIndex + 1} <span className="text-slate-300">/</span> {filteredProblems.length}</div>
-            <div className="text-[10px] font-black px-2 py-1 bg-teal-50 rounded text-teal-600 uppercase tracking-wider">{problem.category}</div>
+      <div className="min-h-screen bg-gray-100 p-4 flex flex-col items-center">
+        <div className="w-full max-w-2xl bg-white shadow rounded-lg overflow-hidden">
+          <div className="bg-blue-600 p-4 text-white flex items-center justify-between">
+            <h2 className="text-xl font-bold">学習履歴</h2>
+            <button onClick={() => setScreen('menu')} className="p-1 hover:bg-blue-700 rounded"><Home size={24} /></button>
           </div>
-        </div>
-
-        <div className="max-w-2xl mx-auto p-4 space-y-6 animate-in fade-in slide-in-from-bottom-4">
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-            <p className="text-md font-bold leading-relaxed whitespace-pre-wrap">{problem.question}</p>
-          </div>
-
-          <div className="grid gap-3">
-            {problem.options.map((opt, idx) => {
-              let btnClass = "p-5 text-left rounded-3xl border-2 transition-all flex items-center gap-4 text-sm ";
-              if (showExplanation) {
-                if (idx === problem.correctAnswer) btnClass += "bg-green-50 border-green-500 text-green-700 font-bold";
-                else if (idx === selectedOption) btnClass += "bg-red-50 border-red-500 text-red-700 opacity-70";
-                else btnClass += "bg-white border-transparent opacity-30 shadow-none";
-              } else {
-                btnClass += "bg-white border-transparent shadow-sm hover:border-slate-200 active:scale-[0.98] font-medium";
-              }
+          <div className="p-4 space-y-2 max-h-[80vh] overflow-y-auto">
+            {quizData.map((q) => {
+              const h = history[q.id];
+              const isFlagged = reviewFlags[q.id];
               return (
-                <button key={idx} disabled={showExplanation} onClick={() => handleAnswer(idx)} className={btnClass}>
-                  <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${showExplanation && idx === problem.correctAnswer ? 'bg-green-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
-                    {['ア','イ','ウ','エ','オ'][idx]}
-                  </span>
-                  <span className="flex-1">{opt}</span>
-                </button>
+                <div key={q.id} className="flex items-center justify-between p-3 border-b border-gray-200">
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-500">{q.year}</div>
+                    <div className="font-bold">{q.title}</div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {h ? (
+                      h.isCorrect ? <span className="text-green-600 font-bold flex items-center"><Check size={18}/> 正解</span> 
+                                  : <span className="text-red-600 font-bold flex items-center"><X size={18}/> 不正解</span>
+                    ) : (
+                      <span className="text-gray-400">未解答</span>
+                    )}
+                    {isFlagged ? <Bookmark size={20} className="text-yellow-500 fill-yellow-500" /> : <Bookmark size={20} className="text-gray-300" />}
+                  </div>
+                </div>
               );
             })}
           </div>
-
-          {showExplanation && (
-            <div className="space-y-4 animate-in zoom-in-95 duration-300">
-              <div className={`p-6 rounded-3xl border shadow-sm ${selectedOption === problem.correctAnswer ? 'bg-white border-green-100' : 'bg-white border-red-100'}`}>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className={`p-1.5 rounded-full ${selectedOption === problem.correctAnswer ? 'bg-green-500' : 'bg-red-500'} text-white`}>
-                    {selectedOption === problem.correctAnswer ? <CheckCircle className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
-                  </div>
-                  <div className={`text-lg font-black ${selectedOption === problem.correctAnswer ? 'text-green-700' : 'text-red-700'}`}>
-                    {selectedOption === problem.correctAnswer ? '正解です！' : '残念...'}
-                  </div>
-                </div>
-                <div className="text-sm leading-relaxed text-slate-600 bg-slate-50/50 p-4 rounded-2xl border border-slate-50" dangerouslySetInnerHTML={{ __html: problem.explanation }} />
-                
-                <label className="flex items-center gap-3 mt-4 p-3 bg-white border border-orange-50 rounded-2xl cursor-pointer shadow-sm">
-                  <input type="checkbox" checked={!!reviewFlags[problem.id]} onChange={() => toggleReview(problem.id)} className="w-4 h-4 rounded border-slate-200 text-orange-500 focus:ring-orange-500" />
-                  <span className="text-xs font-black text-slate-500">この問題を復習リストに追加</span>
-                </label>
-              </div>
-
-              <button onClick={nextProblem} className="w-full p-6 bg-slate-900 text-white font-black rounded-3xl shadow-xl flex items-center justify-center gap-3 hover:bg-black transition active:scale-95">
-                {currentProblemIndex === filteredProblems.length - 1 ? '結果を見る' : '次の問題へ'} <ArrowRight className="w-5 h-5" />
-              </button>
-            </div>
-          )}
         </div>
       </div>
     );
   }
 
-  if (currentScreen === 'result') {
-    const sessionCorrect = filteredProblems.filter(p => userAnswers[p.id]?.isCorrect).length;
-    const score = Math.round((sessionCorrect / filteredProblems.length) * 100);
+  // Quiz Screen
+  if (screen === 'quiz' && currentList.length > 0) {
+    const currentQ = currentList[currentIndex];
+    const isReviewFlagged = reviewFlags[currentQ.id] || false;
 
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans text-white">
-        <div className="max-w-md w-full space-y-8 text-center animate-in zoom-in-90 duration-500">
-          <div className="relative inline-block">
-            <div className="w-28 h-28 bg-teal-500 rounded-full flex items-center justify-center mx-auto shadow-[0_0_40px_rgba(20,184,166,0.3)]">
-              <TrendingUp className="w-14 h-14 text-slate-900" />
+      <div className="min-h-screen bg-gray-100 flex flex-col items-center py-6 px-4">
+        <div className="w-full max-w-2xl bg-white shadow-lg rounded-lg overflow-hidden">
+          {/* Header */}
+          <div className="bg-blue-600 p-4 text-white flex justify-between items-center">
+            <div>
+              <span className="text-sm opacity-80">{currentQ.year}</span>
+              <h2 className="font-bold text-lg">問 {currentIndex + 1} / {currentList.length} - {currentQ.title}</h2>
             </div>
-          </div>
-          
-          <div>
-            <h2 className="text-3xl font-black tracking-tighter mb-2 italic uppercase">Mission Complete!</h2>
-            <div className="text-7xl font-black mb-4 tracking-tighter text-teal-500">{score}<span className="text-3xl font-bold text-white ml-1">%</span></div>
-            <p className="text-slate-400 font-black tracking-widest uppercase text-xs">Score: {sessionCorrect} / {filteredProblems.length}</p>
+            <button onClick={() => setScreen('menu')} className="p-2 hover:bg-blue-700 rounded" title="メニューに戻る">
+              <Home size={20} />
+            </button>
           </div>
 
-          <button onClick={() => setCurrentScreen('menu')} className="w-full p-6 bg-white text-slate-900 font-black rounded-3xl shadow-xl hover:bg-slate-100 transition active:scale-95">
-            メニューに戻る
-          </button>
+          {/* Question Content */}
+          <div className="p-6">
+            <div className="text-gray-800 leading-relaxed mb-6">{currentQ.question}</div>
+
+            {/* Choices */}
+            <div className="space-y-3 mb-6">
+              {currentQ.choices.map((choice, idx) => {
+                let btnClass = "w-full text-left p-4 rounded border flex items-center transition-colors ";
+                if (isAnswering) {
+                  btnClass += "border-gray-300 hover:bg-blue-50 hover:border-blue-300";
+                } else {
+                  if (idx === currentQ.answerIndex) {
+                    btnClass += "bg-green-100 border-green-500 font-bold";
+                  } else if (idx === selectedChoice) {
+                    btnClass += "bg-red-100 border-red-500";
+                  } else {
+                    btnClass += "border-gray-200 opacity-50";
+                  }
+                }
+
+                return (
+                  <button 
+                    key={idx} 
+                    disabled={!isAnswering}
+                    onClick={() => handleAnswer(idx)}
+                    className={btnClass}
+                  >
+                    {!isAnswering && idx === currentQ.answerIndex && <Check className="text-green-600 mr-2 min-w-max" size={20} />}
+                    {!isAnswering && idx === selectedChoice && idx !== currentQ.answerIndex && <X className="text-red-600 mr-2 min-w-max" size={20} />}
+                    <span className={!isAnswering ? "ml-2" : ""}>{choice}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Explanation Area */}
+            {!isAnswering && (
+              <div className="mt-8 border-t border-gray-200 pt-6 animate-fade-in">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-bold text-gray-800">解説</h3>
+                  <label className="flex items-center gap-2 cursor-pointer bg-yellow-50 px-3 py-1.5 rounded-full border border-yellow-200 hover:bg-yellow-100 transition">
+                    <input 
+                      type="checkbox" 
+                      className="hidden"
+                      checked={isReviewFlagged}
+                      onChange={toggleReviewFlag}
+                    />
+                    <Bookmark size={18} className={isReviewFlagged ? "text-yellow-500 fill-yellow-500" : "text-gray-400"} />
+                    <span className="text-sm font-semibold text-yellow-700">要復習</span>
+                  </label>
+                </div>
+                
+                <div className="bg-gray-50 p-4 rounded text-gray-700 text-sm leading-relaxed mb-6">
+                  {currentQ.explanation}
+                </div>
+
+                <button 
+                  onClick={handleNext}
+                  className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded hover:bg-blue-700 flex items-center justify-center shadow"
+                >
+                  {currentIndex + 1 < currentList.length ? (
+                    <>次の問題へ <ChevronRight size={20} className="ml-1" /></>
+                  ) : (
+                    <>結果一覧に戻る</>
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     );
